@@ -26,6 +26,9 @@ void printUsage()
             << "                   [-f/--filter RT|RTLightmap]" << std::endl
             << "                   [--hdr color.pfm] [--ldr color.pfm] [--srgb] [--dir directional.pfm]" << std::endl
             << "                   [--alb albedo.pfm] [--nrm normal.pfm] [--clean_aux]" << std::endl
+            << "                   [--prev prev_output.pfm] [--motion motion.pfm]" << std::endl
+            << "                   [--prev_alb prev_albedo.pfm] [--prev_nrm prev_normal.pfm]" << std::endl
+            << "                   [--tb/--temporal_blend value]" << std::endl
             << "                   [--is/--input_scale value]" << std::endl
             << "                   [-o/--output output.pfm]" << std::endl
             << "                   [-r/--ref reference_output.pfm] [--maxerror e]" << std::endl
@@ -77,6 +80,7 @@ int main(int argc, char* argv[])
   PhysicalDeviceRef physicalDevice;
   std::string filterType = "RT";
   std::string colorFilename, albedoFilename, normalFilename;
+  std::string prevOutputFilename, motionFilename, prevAlbedoFilename, prevNormalFilename;
   std::string outputFilename, refFilename;
   std::string weightsFilename;
   Quality quality = Quality::Default;
@@ -85,6 +89,7 @@ int main(int argc, char* argv[])
   bool srgb = false;
   bool directional = false;
   float inputScale = std::numeric_limits<float>::quiet_NaN();
+  float temporalBlend = std::numeric_limits<float>::quiet_NaN();
   bool cleanAux = false;
   DataType dataType = DataType::Undefined;
   int numRuns = 1;
@@ -139,6 +144,16 @@ int main(int argc, char* argv[])
         albedoFilename = args.getNextValue();
       else if (opt == "nrm" || opt == "normal")
         normalFilename = args.getNextValue();
+      else if (opt == "prev" || opt == "prev_output" || opt == "prevOutput")
+        prevOutputFilename = args.getNextValue();
+      else if (opt == "motion" || opt == "mv")
+        motionFilename = args.getNextValue();
+      else if (opt == "prev_alb" || opt == "prevAlbedo")
+        prevAlbedoFilename = args.getNextValue();
+      else if (opt == "prev_nrm" || opt == "prevNormal")
+        prevNormalFilename = args.getNextValue();
+      else if (opt == "tb" || opt == "temporal_blend" || opt == "temporalBlend")
+        temporalBlend = args.getNextValue<float>();
       else if (opt == "o" || opt == "out" || opt == "output")
         outputFilename = args.getNextValue();
       else if (opt == "r" || opt == "ref" || opt == "reference")
@@ -298,6 +313,56 @@ int main(int argc, char* argv[])
     const int height = input->getH();
     std::cout << "Resolution: " << width << "x" << height << std::endl;
 
+    // Load the temporal accumulation input images (optional)
+    std::shared_ptr<ImageBuffer> prevOutput, motion, prevAlbedo, prevNormal;
+
+    if (!prevOutputFilename.empty())
+    {
+      prevOutput = loadImage(device, prevOutputFilename, srgb, dataType, bufferStorage);
+      if (prevOutput->getW() != width || prevOutput->getH() != height)
+        throw std::runtime_error("invalid previous output image size");
+      prevOutput->toDevice();
+    }
+
+    if (!motionFilename.empty())
+    {
+      motion = loadImage(device, motionFilename, false, DataType::Float32, bufferStorage);
+      if (motion->getW() != width || motion->getH() != height)
+        throw std::runtime_error("invalid motion vector image size");
+      if (motion->getC() != 2)
+      {
+        // Keep only the first two channels of the motion vector image
+        auto motion2 = std::make_shared<ImageBuffer>(device, width, height, 2,
+                                                     DataType::Float32, bufferStorage);
+        for (size_t i = 0; i < size_t(width) * height; ++i)
+        {
+          motion2->set(i * 2 + 0, motion->get(i * motion->getC() + 0));
+          motion2->set(i * 2 + 1, motion->get(i * motion->getC() + 1));
+        }
+        motion = motion2;
+      }
+      motion->toDevice();
+    }
+
+    if (!prevAlbedoFilename.empty())
+    {
+      prevAlbedo = loadImage(device, prevAlbedoFilename, false, dataType, bufferStorage);
+      if (prevAlbedo->getW() != width || prevAlbedo->getH() != height)
+        throw std::runtime_error("invalid previous albedo image size");
+      prevAlbedo->toDevice();
+    }
+
+    if (!prevNormalFilename.empty())
+    {
+      prevNormal = loadImage(device, prevNormalFilename, false, dataType, bufferStorage);
+      if (prevNormal->getW() != width || prevNormal->getH() != height)
+        throw std::runtime_error("invalid previous normal image size");
+      prevNormal->toDevice();
+    }
+
+    if ((prevOutput || motion || prevAlbedo || prevNormal) && !(prevOutput && motion))
+      throw std::runtime_error("temporal accumulation requires both --prev and --motion");
+
     // Initialize the output image
     std::shared_ptr<ImageBuffer> output;
     if (inplace)
@@ -341,6 +406,22 @@ int main(int argc, char* argv[])
         filter.set("hdr", true);
       if (srgb)
         filter.set("srgb", true);
+
+      if (prevOutput && motion)
+      {
+        filter.setImage("prevOutput", prevOutput->getBuffer(), prevOutput->getFormat(),
+                        prevOutput->getW(), prevOutput->getH());
+        filter.setImage("motion", motion->getBuffer(), motion->getFormat(),
+                        motion->getW(), motion->getH());
+        if (prevAlbedo)
+          filter.setImage("prevAlbedo", prevAlbedo->getBuffer(), prevAlbedo->getFormat(),
+                          prevAlbedo->getW(), prevAlbedo->getH());
+        if (prevNormal)
+          filter.setImage("prevNormal", prevNormal->getBuffer(), prevNormal->getFormat(),
+                          prevNormal->getW(), prevNormal->getH());
+        if (std::isfinite(temporalBlend))
+          filter.set("temporalBlend", temporalBlend);
+      }
     }
     else if (filterType == "RTLightmap")
     {

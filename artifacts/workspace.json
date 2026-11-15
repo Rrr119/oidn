@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid18036",
+  "B": "/home/dev/feedback/uid18036",
+  "sha": "6602ee2ca38a1a2a02135beed8f6e68eed630180",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "RenderKit",
+    "repo": "oidn",
+    "sha": "6602ee2ca38a1a2a02135beed8f6e68eed630180"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "oidn",
+    "cloneUrl": "https://github.com/Rrr119/oidn.git"
+  },
+  "at": "2026-11-15T02:56:15.136Z"
+}

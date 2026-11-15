@@ -32,6 +32,7 @@ OIDN_NAMESPACE_BEGIN
   class InputProcess;
   class OutputProcess;
   class ImageCopy;
+  class TemporalAccum;
 
   // Execution engine of a subdevice
   class Engine
@@ -95,6 +96,7 @@ OIDN_NAMESPACE_BEGIN
     virtual Ref<InputProcess> newInputProcess(const InputProcessDesc& desc) = 0;
     virtual Ref<OutputProcess> newOutputProcess(const OutputProcessDesc& desc) = 0;
     virtual Ref<ImageCopy> newImageCopy() = 0;
+    virtual Ref<TemporalAccum> newTemporalAccum();
 
     // Unified shared memory (USM)
     virtual void* usmAlloc(size_t byteSize, Storage storage);

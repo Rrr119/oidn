@@ -1,6 +1,17 @@
 Version History
 ---------------
 
+### Changes in v2.5.2:
+
+-   Added optional temporal accumulation to the `RT` filter for denoising
+    image sequences with improved temporal stability (less flickering),
+    enabled by the new `prevOutput` and `motion` image parameters, with
+    optional `prevAlbedo`/`prevNormal` images for disocclusion detection and
+    the `temporalBlend` parameter for controlling the maximum weight of the
+    previous frame (currently supported on CPU devices only)
+-   Added `--prev`, `--motion`, `--prev_alb`, `--prev_nrm` and
+    `--temporal_blend` options to `oidnDenoise` for temporal accumulation
+
 ### Changes in v2.5.1:
 
 -   Fixed integer overflows which could cause out-of-bounds reads or writes

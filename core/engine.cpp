@@ -3,6 +3,7 @@
 
 #include "engine.h"
 #include "conv.h"
+#include "temporal_accum.h"
 
 OIDN_NAMESPACE_BEGIN
 
@@ -127,6 +128,11 @@ OIDN_NAMESPACE_BEGIN
   Ref<ConcatConv2> Engine::newConcatConv2(const ConcatConvDesc& desc)
   {
     throw std::logic_error("concat+conv operation is not implemented");
+  }
+
+  Ref<TemporalAccum> Engine::newTemporalAccum()
+  {
+    throw std::logic_error("temporal accumulation operation is not implemented");
   }
 
   void* Engine::usmAlloc(size_t byteSize, Storage storage)

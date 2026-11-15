@@ -35,6 +35,7 @@ OIDN_NAMESPACE_BEGIN
     Ref<InputProcess> newInputProcess(const InputProcessDesc& desc) override;
     Ref<OutputProcess> newOutputProcess(const OutputProcessDesc& desc) override;
     Ref<ImageCopy> newImageCopy() override;
+    Ref<TemporalAccum> newTemporalAccum() override;
 
     // Unified shared memory (USM)
     void* usmAlloc(size_t byteSize, Storage storage) override;

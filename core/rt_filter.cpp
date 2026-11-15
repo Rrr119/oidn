@@ -78,6 +78,14 @@ OIDN_NAMESPACE_BEGIN
       setParam(albedo, image);
     else if (name == "normal")
       setParam(normal, image);
+    else if (name == "prevOutput")
+      setParam(prevOutput, image);
+    else if (name == "motion")
+      setParam(motion, image);
+    else if (name == "prevAlbedo")
+      setParam(prevAlbedo, image);
+    else if (name == "prevNormal")
+      setParam(prevNormal, image);
     else if (name == "output")
       setParam(output, image);
     else
@@ -94,6 +102,14 @@ OIDN_NAMESPACE_BEGIN
       removeParam(albedo);
     else if (name == "normal")
       removeParam(normal);
+    else if (name == "prevOutput")
+      removeParam(prevOutput);
+    else if (name == "motion")
+      removeParam(motion);
+    else if (name == "prevAlbedo")
+      removeParam(prevAlbedo);
+    else if (name == "prevNormal")
+      removeParam(prevNormal);
     else if (name == "output")
       removeParam(output);
     else

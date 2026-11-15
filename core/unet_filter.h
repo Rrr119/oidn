@@ -8,6 +8,7 @@
 #include "color.h"
 #include "autoexposure.h"
 #include "image_copy.h"
+#include "temporal_accum.h"
 
 OIDN_NAMESPACE_BEGIN
 
@@ -47,6 +48,15 @@ OIDN_NAMESPACE_BEGIN
     Ref<Image> normal;
     Ref<Image> output;
 
+    // Temporal accumulation images (optional)
+    Ref<Image> prevOutput;   // previous frame output (history)
+    Ref<Image> motion;       // motion vectors from the current to the previous frame (2 channels, in pixels)
+    Ref<Image> prevAlbedo;   // previous frame albedo (for disocclusion detection)
+    Ref<Image> prevNormal;   // previous frame normal (for disocclusion detection)
+
+    // Returns whether temporal accumulation is enabled
+    bool isTemporal() const { return prevOutput && motion; }
+
     // Options
     static constexpr Quality defaultQuality = Quality::High;
     Quality quality = defaultQuality;
@@ -55,6 +65,7 @@ OIDN_NAMESPACE_BEGIN
     bool directional = false;
     float inputScale = std::numeric_limits<float>::quiet_NaN();
     bool cleanAux = false;
+    float temporalBlend = 0.8f; // maximum weight of the history in [0, 1]
     int maxMemoryMB = -1;     // maximum memory usage limit in MBs, disabled if < 0
     int prevMaxMemoryMB = -1; // maximum memory usage limit in MBs from the previous commit
 
@@ -125,6 +136,8 @@ OIDN_NAMESPACE_BEGIN
     // In-place tiled filtering
     Ref<ImageCopy> imageCopy;
     Ref<Image> outputTemp;
+    // Temporal accumulation
+    Ref<TemporalAccum> temporalAccum;
     bool largeModel = false; // is UNetLarge?
   };
 

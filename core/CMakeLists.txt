@@ -60,6 +60,7 @@ set(OIDN_CORE_SOURCES
   semaphore.h
   subdevice.h
   subdevice.cpp
+  temporal_accum.h
   tensor.h
   tensor.cpp
   tensor_accessor.h

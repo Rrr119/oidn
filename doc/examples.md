@@ -18,6 +18,18 @@ color values must be encoded in little-endian format. To enable other image
 formats (e.g. OpenEXR, PNG) as well, the project has to be rebuilt with
 OpenImageIO support enabled.
 
+When denoising an image sequence, temporal accumulation can be enabled by
+additionally passing the denoised output of the previous frame (`--prev`) and
+the motion vectors of the current frame (`--motion`), e.g.:
+
+    oidnDenoise --hdr color_0042.pfm --alb albedo_0042.pfm --nrm normal_0042.pfm \
+                --prev denoised_0041.pfm --motion motion_0042.pfm \
+                --prev_alb albedo_0041.pfm --prev_nrm normal_0041.pfm \
+                -o denoised_0042.pfm
+
+The maximum weight of the previous frame can be controlled with the
+`--temporal_blend` option (default: 0.8).
+
 Running `oidnDenoise` without any arguments or the `-h` argument will bring up
 a list of command-line options.
 

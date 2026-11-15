@@ -88,6 +88,12 @@ OIDN_NAMESPACE_BEGIN
   {
     if (name == "inputScale")
       inputScale = value;
+    else if (name == "temporalBlend")
+    {
+      if (!(value >= 0.f && value <= 1.f))
+        throw Exception(Error::InvalidArgument, "temporal blend factor is out of range [0, 1]");
+      temporalBlend = value;
+    }
     else if (name == "hdrScale")
     {
       device->printWarning("filter parameter 'hdrScale' is deprecated, use 'inputScale' instead");
@@ -103,6 +109,8 @@ OIDN_NAMESPACE_BEGIN
   {
     if (name == "inputScale")
       return inputScale;
+    else if (name == "temporalBlend")
+      return temporalBlend;
     else if (name == "hdrScale")
     {
       device->printWarning("filter parameter 'hdrScale' is deprecated, use 'inputScale' instead");
@@ -182,7 +190,9 @@ OIDN_NAMESPACE_BEGIN
         workAmount *= (tileCountH * tileCountW) / device->getNumSubdevices();
         if (hdr && math::isnan(inputScale))
           workAmount += autoexposure->getWorkAmount();
-        if (outputTemp)
+        if (temporalAccum)
+          workAmount += temporalAccum->getWorkAmount();
+        else if (outputTemp)
           workAmount += imageCopy->getWorkAmount();
 
         progress = makeRef<Progress>(progressFunc, progressUserPtr, workAmount);
@@ -262,9 +272,15 @@ OIDN_NAMESPACE_BEGIN
 
       device->submitBarrier();
 
-      // Copy the output image to the final buffer if filtering in-place
-      if (outputTemp)
+      if (temporalAccum)
       {
+        // Accumulate the denoised frame with the reprojected history
+        temporalAccum->setBlend(temporalBlend);
+        temporalAccum->submit(progress);
+      }
+      else if (outputTemp)
+      {
+        // Copy the output image to the final buffer if filtering in-place
         imageCopy->setDst(output);
         imageCopy->submit(progress);
       }
@@ -362,6 +378,7 @@ OIDN_NAMESPACE_BEGIN
     transferFunc.reset();
     autoexposure.reset();
     imageCopy.reset();
+    temporalAccum.reset();
     outputTemp.reset();
   }
 
@@ -396,6 +413,41 @@ OIDN_NAMESPACE_BEGIN
         (normal && (normal->getW() != output->getW() || normal->getH() != output->getH())))
       throw Exception(Error::InvalidOperation, "image size mismatch");
 
+    // Temporal accumulation requires both the previous output and the motion vectors
+    if ((prevOutput || motion || prevAlbedo || prevNormal) && !isTemporal())
+      throw Exception(Error::InvalidOperation,
+                      "temporal accumulation requires both 'prevOutput' and 'motion' images");
+
+    if (isTemporal())
+    {
+      if (motion->getFormat() != Format::Float2 && motion->getFormat() != Format::Half2)
+        throw Exception(Error::InvalidOperation, "unsupported motion vector image format");
+
+      if (!isSupportedFormat(prevOutput->getFormat()))
+        throw Exception(Error::InvalidOperation, "unsupported previous output image format");
+
+      if (prevOutput->getC() != output->getC())
+        throw Exception(Error::InvalidOperation, "previous output/output image channel count mismatch");
+
+      if ((prevOutput && (prevOutput->getW() != output->getW() || prevOutput->getH() != output->getH())) ||
+          (motion     && (motion->getW()     != output->getW() || motion->getH()     != output->getH())) ||
+          (prevAlbedo && (prevAlbedo->getW() != output->getW() || prevAlbedo->getH() != output->getH())) ||
+          (prevNormal && (prevNormal->getW() != output->getW() || prevNormal->getH() != output->getH())))
+        throw Exception(Error::InvalidOperation, "image size mismatch");
+
+      if (prevAlbedo && !albedo)
+        throw Exception(Error::InvalidOperation, "'prevAlbedo' requires the 'albedo' image");
+      if (prevNormal && !normal)
+        throw Exception(Error::InvalidOperation, "'prevNormal' requires the 'normal' image");
+
+      // The history is read while the output is written, so they must not overlap
+      if (output->overlaps(*prevOutput) || output->overlaps(*motion) ||
+          (prevAlbedo && output->overlaps(*prevAlbedo)) ||
+          (prevNormal && output->overlaps(*prevNormal)))
+        throw Exception(Error::InvalidOperation,
+                        "output image cannot overlap the temporal accumulation input images");
+    }
+
     if (directional && (hdr || srgb))
       throw Exception(Error::InvalidOperation, "directional and hdr/srgb modes cannot be enabled at the same time");
     if (hdr && srgb)
@@ -410,6 +462,7 @@ OIDN_NAMESPACE_BEGIN
       if (normal) std::cout << " " << "nrm" << ":" << normal->getFormat();
       std::cout << std::endl;
       std::cout << "Output: " << output->getFormat() << std::endl;
+      std::cout << "Temporal: " << (isTemporal() ? "true" : "false") << std::endl;
     }
   }
 
@@ -602,10 +655,11 @@ OIDN_NAMESPACE_BEGIN
 
       scratchByteSize = round_up(scratchByteSize, memoryAlignment);
 
-      // If doing in-place _tiled_ filtering, allocate a temporary output image
+      // If doing in-place _tiled_ filtering or temporal accumulation, allocate a
+      // temporary output image
       ImageDesc outputTempDesc(output->getFormat(), W, H);
       size_t outputTempByteOffset = SIZE_MAX;
-      if (instanceID == 0 && inplace && (tileCountH * tileCountW) > 1)
+      if (instanceID == 0 && ((inplace && (tileCountH * tileCountW) > 1) || isTemporal()))
       {
         outputTempByteOffset = scratchByteSize;
         scratchByteSize += round_up(outputTempDesc.getByteSize(), memoryAlignment);
@@ -662,9 +716,26 @@ OIDN_NAMESPACE_BEGIN
 
     if (outputTemp)
     {
-      imageCopy = device->getEngine()->newImageCopy();
-      imageCopy->setSrc(outputTemp);
-      imageCopy->finalize();
+      if (isTemporal())
+      {
+        temporalAccum = device->getEngine()->newTemporalAccum();
+        temporalAccum->setCur(outputTemp);
+        temporalAccum->setPrev(prevOutput);
+        temporalAccum->setMotion(motion);
+        temporalAccum->setAlbedo(albedo);
+        temporalAccum->setPrevAlbedo(prevAlbedo);
+        temporalAccum->setNormal(normal);
+        temporalAccum->setPrevNormal(prevNormal);
+        temporalAccum->setDst(output);
+        temporalAccum->setBlend(temporalBlend);
+        temporalAccum->finalize();
+      }
+      else
+      {
+        imageCopy = device->getEngine()->newImageCopy();
+        imageCopy->setSrc(outputTemp);
+        imageCopy->finalize();
+      }
     }
 
     // Print statistics
@@ -685,6 +756,7 @@ OIDN_NAMESPACE_BEGIN
 
     autoexposure.reset();
     imageCopy.reset();
+    temporalAccum.reset();
     outputTemp.reset();
   }
 

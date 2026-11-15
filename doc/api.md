@@ -1176,10 +1176,12 @@ implemented in Open Image Denoise.
 The `RT` (**r**ay **t**racing) filter is a generic ray tracing denoising filter
 which is suitable for denoising images rendered with Monte Carlo ray tracing
 methods like unidirectional and bidirectional path tracing. It supports depth
-of field and motion blur as well, but it is *not* temporally stable. The filter
-is based on a convolutional neural network (CNN) and comes with a set of
-pre-trained  models that work well with a wide range of ray tracing based
-renderers and noise levels.
+of field and motion blur as well. The filter is based on a convolutional neural
+network (CNN) and comes with a set of pre-trained models that work well with a
+wide range of ray tracing based renderers and noise levels. The filter operates
+on single frames only, but it can optionally perform *temporal accumulation*
+to improve temporal stability when denoising image sequences (see the
+`prevOutput` and `motion` parameters).
 
 ![Example noisy beauty image rendered using unidirectional path tracing (4
 samples per pixel). *Scene by Evermotion.*][imgMazdaColor]
@@ -1232,6 +1234,23 @@ Type        Name               Default Description
 
 `Image`     `output`        *required* output image (1--3 channels); can be one of the input images
 
+`Image`     `prevOutput`    *optional* input image containing the denoised output of the previous
+                                       frame (1--3 channels); enables temporal accumulation when
+                                       specified together with `motion`
+
+`Image`     `motion`        *optional* input auxiliary image containing the motion vectors per
+                                       pixel (2 channels, in pixels, pointing from the current
+                                       frame to the previous frame); enables temporal accumulation
+                                       when specified together with `prevOutput`
+
+`Image`     `prevAlbedo`    *optional* input auxiliary image containing the albedo of the previous
+                                       frame (1--3 channels), used for disocclusion detection;
+                                       requires the `albedo` image
+
+`Image`     `prevNormal`    *optional* input auxiliary image containing the shading normal of the
+                                       previous frame (1--3 channels), used for disocclusion
+                                       detection; requires the `normal` image
+
 `Bool`      `hdr`              `false` the main input image is HDR
 
 `Bool`      `srgb`             `false` the main input image is encoded with the sRGB (or 2.2 gamma)
@@ -1249,6 +1268,11 @@ Type        Name               Default Description
 `Bool`      `cleanAux`         `false` the auxiliary feature (albedo, normal) images are noise-free;
                                        recommended for highest quality but should *not* be enabled for
                                        noisy auxiliary images to avoid residual noise
+
+`Float`     `temporalBlend`     `0.8` maximum weight of the previous frame (history) when temporal
+                                       accumulation is enabled (value in [0, 1]); higher values
+                                       improve temporal stability but may introduce ghosting,
+                                       lower values reduce ghosting but also temporal stability
 
 `Int`       `quality`             high image quality mode as an `OIDNQuality` value
 
@@ -1273,6 +1297,32 @@ Type        Name               Default Description
 
 ----------- --------------- ---------- ---------------------------------------------------------------
 : Parameters supported by the `RT` filter.
+
+When denoising image sequences (e.g. animations), the per-frame output of the
+filter is not temporally stable, which usually shows up as flickering. To
+improve temporal stability, the filter can optionally accumulate the denoised
+frame with the denoised output of the previous frame. This temporal
+accumulation is enabled by setting both the `prevOutput` (the history) and
+the `motion` (motion vectors) images. The previous frame is reprojected onto
+the current frame using the motion vectors and is then blended with the
+current denoised frame using at most the weight specified by the
+`temporalBlend` parameter. History samples that are invalid are automatically
+rejected: pixels reprojected outside the previous frame, pixels with very
+long (and thus less reliable) motion vectors, i.e. fast motion, and
+disoccluded pixels. Disocclusions are detected by comparing the `albedo` and
+`normal` images of the current frame with the reprojected `prevAlbedo` and
+`prevNormal` images of the previous frame, so providing these auxiliary
+images is recommended for best quality. If they are not provided, only color
+consistency between the reprojected history and the current frame is used to
+reject invalid history.
+
+The application is responsible for keeping the output of the previous frame
+and passing it as `prevOutput` for the next frame. For the first frame of a
+sequence, simply omit the temporal images, in which case the filter runs in
+single-frame mode exactly as before. Note that the `output` image must *not*
+overlap the temporal input images (`prevOutput`, `motion`, `prevAlbedo`,
+`prevNormal`). Temporal accumulation is currently supported only on CPU
+devices.
 
 Using auxiliary feature images like albedo and normal helps preserving fine
 details and textures in the image thus can significantly improve denoising

@@ -853,6 +853,122 @@ TEST_CASE("filter parameters", "[filter_params]")
 
 // -------------------------------------------------------------------------------------------------
 
+TEST_CASE("temporal filter", "[temporal_filter]")
+{
+  const int W = 129;
+  const int H = 65;
+
+  DeviceRef device = makeAndCommitDevice();
+
+  auto color      = makeRandomImage(device, W, H);
+  auto output     = makeImage(device, W, H);
+  auto prevOutput = makeRandomImage(device, W, H);
+  auto motion     = makeConstImage(device, W, H, 2, DataType::Float32, 0.f);
+
+  FilterRef filter = device.newFilter("RT");
+  REQUIRE(bool(filter));
+
+  SECTION("temporal accumulation")
+  {
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "output", output);
+    setFilterImage(filter, "prevOutput", prevOutput);
+    setFilterImage(filter, "motion", motion);
+    filter.set("hdr", true);
+
+    filter.set("temporalBlend", 0.5f);
+    REQUIRE(filter.get<float>("temporalBlend") == 0.5f);
+
+    filter.commit();
+    REQUIRE(device.getError() == Error::None);
+
+    filter.execute();
+    REQUIRE(device.getError() == Error::None);
+    REQUIRE(isBetween(output, -0.5f, 1.5f)); // output sanity check
+  }
+
+  SECTION("temporal accumulation with auxiliary images")
+  {
+    auto albedo     = makeConstImage(device, W, H, 3, DataType::Float32, 0.5f);
+    auto normal     = makeConstImage(device, W, H, 3, DataType::Float32, 0.5f);
+    auto prevAlbedo = makeConstImage(device, W, H, 3, DataType::Float32, 0.5f);
+    auto prevNormal = makeConstImage(device, W, H, 3, DataType::Float32, 0.5f);
+
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "albedo", albedo);
+    setFilterImage(filter, "normal", normal);
+    setFilterImage(filter, "output", output);
+    setFilterImage(filter, "prevOutput", prevOutput);
+    setFilterImage(filter, "motion", motion);
+    setFilterImage(filter, "prevAlbedo", prevAlbedo);
+    setFilterImage(filter, "prevNormal", prevNormal);
+    filter.set("hdr", true);
+
+    filter.commit();
+    REQUIRE(device.getError() == Error::None);
+
+    filter.execute();
+    REQUIRE(device.getError() == Error::None);
+    REQUIRE(isBetween(output, -0.5f, 1.5f)); // output sanity check
+  }
+
+  SECTION("incomplete temporal parameters")
+  {
+    // Both the previous output and the motion vectors are required
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "output", output);
+    setFilterImage(filter, "prevOutput", prevOutput);
+    filter.commit();
+    REQUIRE(device.getError() == Error::InvalidOperation);
+  }
+
+  SECTION("invalid motion vector format")
+  {
+    auto invalidMotion = makeConstImage(device, W, H, 3, DataType::Float32, 0.f);
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "output", output);
+    setFilterImage(filter, "prevOutput", prevOutput);
+    setFilterImage(filter, "motion", invalidMotion);
+    filter.commit();
+    REQUIRE(device.getError() == Error::InvalidOperation);
+  }
+
+  SECTION("invalid temporal blend factor")
+  {
+    filter.set("temporalBlend", 1.5f);
+    REQUIRE(device.getError() == Error::InvalidArgument);
+    filter.set("temporalBlend", -0.5f);
+    REQUIRE(device.getError() == Error::InvalidArgument);
+  }
+
+  SECTION("output overlapping history")
+  {
+    // The output cannot overlap the temporal accumulation inputs
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "output", prevOutput);
+    setFilterImage(filter, "prevOutput", prevOutput);
+    setFilterImage(filter, "motion", motion);
+    filter.commit();
+    REQUIRE(device.getError() == Error::InvalidOperation);
+  }
+
+  SECTION("single-frame compatibility")
+  {
+    // Without temporal images the filter must behave exactly as before
+    setFilterImage(filter, "color", color);
+    setFilterImage(filter, "output", output);
+    filter.set("hdr", true);
+    filter.commit();
+    REQUIRE(device.getError() == Error::None);
+
+    filter.execute();
+    REQUIRE(device.getError() == Error::None);
+    REQUIRE(isBetween(output, -0.5f, 1.5f)); // output sanity check
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
+
 void multiFilter1PerDeviceTest(DeviceRef& device, const std::vector<int>& sizes, bool reuseFilter)
 {
   FilterRef filter;
